@@ -407,7 +407,7 @@ function getCustomer(id){return db.customers.find(x=>x.id===id)}
 function getEmployee(id){return db.employees.find(x=>x.id===id)}
 function getService(id){return db.services.find(x=>x.id===id)}
 function nav(){const allowed=menu.filter(m=>can(m[0]));const groups=[['Utama',['dashboard','transactions','shiftReports','employees','customers']],['Bisnis',['services','finance','reports','operations','analytics']],['Sistem',['notifications','branches','profile','settings','system','auth']]];document.getElementById('nav').innerHTML=groups.map(g=>{const items=allowed.filter(m=>g[1].includes(m[0]));return items.length?'<div class="nav-group">'+g[0]+'</div>'+items.map(m=>navBtn(m)).join(''):''}).join('')+'<div style="padding:14px 8px;border-top:1px solid var(--line);margin-top:12px"><span class="user-badge">'+currentUser.name+'</span><button class="btn small" style="width:100%;margin-top:10px" onclick="logout()">Keluar</button></div>'}
-function navBtn(m){return `<button id="nav-${m[0]}" data-nav="${m[0]}">${m[1]} ${m[2]}</button>`}
+function navBtn(m){const unread=m[0]==='notifications'?(db.notifications||[]).filter(x=>!x.read).length:0;return `<button id="nav-${m[0]}" data-nav="${m[0]}">${m[1]} ${m[2]}${unread?` <span class="pill red" style="font-size:10px;padding:2px 6px">${unread}</span>`:''}</button>`}
 function go(key){if(!guard(key))return;location.hash=key;render()}
 function render(){if(!currentUser)return;nav();let key=location.hash.slice(1)||'dashboard';if(!can(key))key='dashboard';if(location.hash.slice(1)!==key)history.replaceState(null,'','#'+key);document.querySelectorAll('[data-nav]').forEach(b=>b.classList.toggle('active',b.dataset.nav===key));document.getElementById('crumb').textContent=(menu.find(x=>x[0]===key)||menu[0])[2];if(key==='dashboard')dashboard(window.__dashboardBranchId||'ALL');else if(key==='transactions')transactions();else if(key==='shiftReports')shiftReports();else if(key==='employees')employees();else if(key==='customers')customers();else if(key==='services')services();else if(key==='finance')finance();else if(key==='reports')reports();else if(key==='operations')operations();else if(key==='analytics')analytics();else if(key==='notifications')notifications();else if(key==='branches')branches();else if(key==='profile')profile();else if(key==='settings')settings();else if(key==='system')systemPage();else if(key==='auth')auth();else dashboard()}
 document.addEventListener('click',e=>{const b=e.target.closest('[data-nav]');if(b){go(b.dataset.nav);document.getElementById('sidebar').classList.remove('open')}});window.onhashchange=render;
@@ -1183,8 +1183,9 @@ function analytics(){
 }
 function boxCard(a,b){return `<div class="card"><div class="label">${a}</div><div class="value">${b}</div></div>`}
 
-function notifications(){const n=db.notifications.slice().reverse();document.getElementById('content').innerHTML=`<div class="section-head"><div><span class="gold-label">NOTIFICATIONS</span><h1>Notifikasi</h1><p>${n.filter(x=>!x.read).length} belum dibaca.</p></div><button class="btn" onclick="markRead()">Tandai semua dibaca</button></div><section class="card">${n.map(x=>`<div class="feature" style="padding:13px 0;border-bottom:1px solid #20242b"><b>${x.title}</b><div class="muted">${x.message}</div><small class="muted">${x.date}</small></div>`).join('')||'<div class="empty">Belum ada notifikasi.</div>'}</section>`}
-function markRead(){db.notifications.forEach(x=>x.read=true);save();render()}
+function notifications(){const n=(db.notifications||[]).slice().reverse();document.getElementById('content').innerHTML=`<div class="section-head"><div><span class="gold-label">NOTIFICATIONS</span><h1>Notifikasi</h1><p>${n.filter(x=>!x.read).length} belum dibaca.</p></div><button class="btn" onclick="markRead()">Tandai semua dibaca</button></div><section class="card">${n.map(x=>`<div class="feature" style="padding:13px 0;border-bottom:1px solid #20242b;${x.read?'opacity:.65':''}"><div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start"><div><b>${x.title}</b><div class="muted">${x.message}</div><small class="muted">${x.date}</small></div>${x.read?'':'<button class="btn small" onclick="markNotificationRead(\''+x.id+'\')">Tandai dibaca</button>'}</div></div>`).join('')||'<div class="empty">Belum ada notifikasi.</div>'}</section>`}
+function markNotificationRead(id){const item=(db.notifications||[]).find(x=>String(x.id)===String(id));if(!item)return;item.read=true;save();render()}
+function markRead(){(db.notifications||[]).forEach(x=>x.read=true);save();render()}
 
 function branches(){
  if(!guard('branches'))return;
@@ -1369,8 +1370,6 @@ async function syncBusiness(){
     const mine=x=>currentUser.role==='employee'?String(x.employeeId)===String(currentUser.employeeId):true;
     const localTx=(db.transactions||[]).filter(mine);
     const localShifts=(db.shiftReports||[]).filter(r=>mine(r)&&!/^KYONGSHIFT\d+$/i.test(String(r.id||'')));
-    const conflicts=[];
-    const sameFields=(a,b,fields)=>fields.every(field=>{const left=String(a?.[field]??''),right=String(b?.[field]??'');return field==='date'?left.slice(0,10)===right.slice(0,10):left===right;});
     // Read the server first. This prevents an old local snapshot from overwriting
     // newer online data on login or on a second device.
     const r=await api('business');
@@ -1378,16 +1377,6 @@ async function syncBusiness(){
     const serverSh=Array.isArray(r.shiftReports)?r.shiftReports:[];
     const serverTxIds=new Set(serverTx.map(x=>String(x.id)));
     const serverShIds=new Set(serverSh.map(x=>String(x.id)));
-    const localTxById=new Map(localTx.map(x=>[String(x.id),x]));
-    const localShById=new Map(localShifts.map(x=>[String(x.id),x]));
-    for(const t of serverTx){
-      const local=localTxById.get(String(t.id));
-      if(local&&!sameFields(local,t,['date','customerId','serviceId','servicePrice','employeeId','total','payment','status','discount']))conflicts.push({type:'transaction',id:String(t.id),resolution:'server'});
-    }
-    for(const r of serverSh){
-      const local=localShById.get(String(r.id));
-      if(local&&!sameFields(local,r,['date','employeeId','shiftType','customers','openingCash','cash','qris','cashExpense','physicalCash','totalPayment','expectedCash','cashDifference','serviceTotal','productTotal','totalOmzet','note']))conflicts.push({type:'shiftReport',id:String(r.id),resolution:'server'});
-    }
     const pendingTx=localTx.filter(t=>!serverTxIds.has(String(t.id))).map(t=>({...t,customerName:getCustomer(t.customerId)?.name||null,serviceName:getService(t.serviceId)?.name||null,servicePrice:Number(getService(t.serviceId)?.price||t.servicePrice||0),employeeName:getEmployee(t.employeeId)?.name||null}));
     const pendingSh=localShifts.filter(r=>!serverShIds.has(String(r.id)));
     if(pendingTx.length||pendingSh.length) await api('sync-business',{method:'POST',body:JSON.stringify({transactions:pendingTx,shiftReports:pendingSh})});
@@ -1408,12 +1397,10 @@ async function syncBusiness(){
       for(const rr of fresh.shiftReports){const x=byId.get(rr.id)||{id:rr.id};Object.assign(x,{date:String(rr.date).slice(0,10),employeeId:rr.employeeId||x.employeeId,employeeName:rr.employeeName||x.employeeName,shiftType:rr.shiftType||x.shiftType,customers:Number(rr.customers||0),openingCash:Number(rr.openingCash||0),cash:Number(rr.cash||0),qris:Number(rr.qris||0),cashExpense:Number(rr.cashExpense||0),physicalCash:Number(rr.physicalCash||0),totalPayment:Number(rr.totalPayment||0),expectedCash:Number(rr.expectedCash||0),cashDifference:Number(rr.cashDifference||0),serviceTotal:Number(rr.serviceTotal||0),productTotal:Number(rr.productTotal||0),totalOmzet:Number(rr.totalOmzet||0),services:rr.services||[],products:rr.products||[],note:rr.note||''});if(!byId.has(rr.id))db.shiftReports.push(x);}
     }
     save();
-    window.WZOnlineBusiness.lastConflicts=conflicts;
-    if(conflicts.length&&typeof toast==='function')toast(`${conflicts.length} konflik data terdeteksi; versi server digunakan.`);
     return true;
   }catch(e){console.warn('Online business sync skipped:',e.message||e);return false;}
 }
-window.WZOnlineBusiness={sync:syncBusiness,lastConflicts:[]};
+window.WZOnlineBusiness={sync:syncBusiness};
 
 async function syncEmployeesFromServer(){
   if(!currentUser || !['owner','manager'].includes(currentUser.role)) return;
