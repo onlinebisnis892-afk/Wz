@@ -24,6 +24,10 @@ function token(){return crypto.randomBytes(32).toString('hex')}
 function tokenHash(t){return crypto.createHash('sha256').update(t).digest('hex')}
 function defaultUsername(name){return String(name||'').trim().toLowerCase().replace(/[^a-z0-9]+/g,'')||'employee'}
 function defaultPassword(name){return String(name||'').trim().toLowerCase().replace(/\s+/g,'')+'123'}
+function safeServerError(error){
+  const message = error && error.message ? String(error.message) : 'Server error';
+  return process.env.NODE_ENV === 'production' ? 'Server sedang tidak tersedia. Silakan coba lagi nanti.' : message;
+}
 
 let schemaPromise;
 async function schema(){
@@ -227,6 +231,6 @@ async function handler(req,res){
       const client=await getPool().connect();try{await client.query('BEGIN');await client.query('DELETE FROM wz_users WHERE employee_id=$1',[id]);const r=await client.query('DELETE FROM wz_employees WHERE id=$1 RETURNING id',[id]);if(!r.rowCount){await client.query('ROLLBACK');return send(res,404,{ok:false,error:'Karyawan tidak ditemukan.'});}await client.query('COMMIT');return send(res,200,{ok:true});}catch(e){await client.query('ROLLBACK');throw e}finally{client.release()};
     }
     return send(res,404,{ok:false,error:'Endpoint tidak ditemukan.'});
-  }catch(e){console.error(e);return send(res,500,{ok:false,error:e.message||'Server error'});}
+  }catch(e){console.error(e);return send(res,500,{ok:false,error:safeServerError(e)});}
 }
 module.exports=handler;
