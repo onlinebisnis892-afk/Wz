@@ -1369,6 +1369,8 @@ async function syncBusiness(){
     const mine=x=>currentUser.role==='employee'?String(x.employeeId)===String(currentUser.employeeId):true;
     const localTx=(db.transactions||[]).filter(mine);
     const localShifts=(db.shiftReports||[]).filter(r=>mine(r)&&!/^KYONGSHIFT\d+$/i.test(String(r.id||'')));
+    const conflicts=[];
+    const sameFields=(a,b,fields)=>fields.every(field=>{const left=String(a?.[field]??''),right=String(b?.[field]??'');return field==='date'?left.slice(0,10)===right.slice(0,10):left===right;});
     // Read the server first. This prevents an old local snapshot from overwriting
     // newer online data on login or on a second device.
     const r=await api('business');
@@ -1376,6 +1378,16 @@ async function syncBusiness(){
     const serverSh=Array.isArray(r.shiftReports)?r.shiftReports:[];
     const serverTxIds=new Set(serverTx.map(x=>String(x.id)));
     const serverShIds=new Set(serverSh.map(x=>String(x.id)));
+    const localTxById=new Map(localTx.map(x=>[String(x.id),x]));
+    const localShById=new Map(localShifts.map(x=>[String(x.id),x]));
+    for(const t of serverTx){
+      const local=localTxById.get(String(t.id));
+      if(local&&!sameFields(local,t,['date','customerId','serviceId','servicePrice','employeeId','total','payment','status','discount']))conflicts.push({type:'transaction',id:String(t.id),resolution:'server'});
+    }
+    for(const r of serverSh){
+      const local=localShById.get(String(r.id));
+      if(local&&!sameFields(local,r,['date','employeeId','shiftType','customers','openingCash','cash','qris','cashExpense','physicalCash','totalPayment','expectedCash','cashDifference','serviceTotal','productTotal','totalOmzet','note']))conflicts.push({type:'shiftReport',id:String(r.id),resolution:'server'});
+    }
     const pendingTx=localTx.filter(t=>!serverTxIds.has(String(t.id))).map(t=>({...t,customerName:getCustomer(t.customerId)?.name||null,serviceName:getService(t.serviceId)?.name||null,servicePrice:Number(getService(t.serviceId)?.price||t.servicePrice||0),employeeName:getEmployee(t.employeeId)?.name||null}));
     const pendingSh=localShifts.filter(r=>!serverShIds.has(String(r.id)));
     if(pendingTx.length||pendingSh.length) await api('sync-business',{method:'POST',body:JSON.stringify({transactions:pendingTx,shiftReports:pendingSh})});
@@ -1396,10 +1408,12 @@ async function syncBusiness(){
       for(const rr of fresh.shiftReports){const x=byId.get(rr.id)||{id:rr.id};Object.assign(x,{date:String(rr.date).slice(0,10),employeeId:rr.employeeId||x.employeeId,employeeName:rr.employeeName||x.employeeName,shiftType:rr.shiftType||x.shiftType,customers:Number(rr.customers||0),openingCash:Number(rr.openingCash||0),cash:Number(rr.cash||0),qris:Number(rr.qris||0),cashExpense:Number(rr.cashExpense||0),physicalCash:Number(rr.physicalCash||0),totalPayment:Number(rr.totalPayment||0),expectedCash:Number(rr.expectedCash||0),cashDifference:Number(rr.cashDifference||0),serviceTotal:Number(rr.serviceTotal||0),productTotal:Number(rr.productTotal||0),totalOmzet:Number(rr.totalOmzet||0),services:rr.services||[],products:rr.products||[],note:rr.note||''});if(!byId.has(rr.id))db.shiftReports.push(x);}
     }
     save();
+    window.WZOnlineBusiness.lastConflicts=conflicts;
+    if(conflicts.length&&typeof toast==='function')toast(`${conflicts.length} konflik data terdeteksi; versi server digunakan.`);
     return true;
   }catch(e){console.warn('Online business sync skipped:',e.message||e);return false;}
 }
-window.WZOnlineBusiness={sync:syncBusiness};
+window.WZOnlineBusiness={sync:syncBusiness,lastConflicts:[]};
 
 async function syncEmployeesFromServer(){
   if(!currentUser || !['owner','manager'].includes(currentUser.role)) return;
