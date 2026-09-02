@@ -315,13 +315,27 @@ function load(){
  try{let x=JSON.parse(sessionStorage.getItem(STORE+'-session'));if(x)return x}catch(e){}
  return structuredClone(initial);
 }
-function toast(message){
+function toast(message,silent=false){
  const el=document.getElementById('toast');
  if(!el)return;
  el.textContent=message;
  el.style.display='block';
+ if(!silent)playNotificationSound();
  clearTimeout(window.__wzToastTimer);
  window.__wzToastTimer=setTimeout(()=>{el.style.display='none'},2200);
+}
+function playNotificationSound(){
+ if(db?.profile?.notificationSoundEnabled===false)return;
+ try{
+  const AudioContext=window.AudioContext||window.webkitAudioContext;
+  if(!AudioContext)return;
+  const ctx=window.__wzAudioContext||(window.__wzAudioContext=new AudioContext());
+  if(ctx.state==='suspended')ctx.resume().catch(()=>{});
+  const now=ctx.currentTime,osc=ctx.createOscillator(),gain=ctx.createGain();
+  osc.type='sine';osc.frequency.setValueAtTime(880,now);osc.frequency.exponentialRampToValueAtTime(660,now+0.12);
+  gain.gain.setValueAtTime(0.0001,now);gain.gain.exponentialRampToValueAtTime(0.12,now+0.015);gain.gain.exponentialRampToValueAtTime(0.0001,now+0.18);
+  osc.connect(gain);gain.connect(ctx.destination);osc.start(now);osc.stop(now+0.2);
+ }catch(e){console.debug('Suara notifikasi tidak tersedia.',e)}
 }
 
 function save(){
@@ -1311,8 +1325,9 @@ function saveMyPassword(){
  closeModal();toast('Password berhasil diubah.');
 }
 
-function settings(){if(!guard('settings'))return;document.getElementById('content').innerHTML=`<div class="section-head"><div><span class="gold-label">SETTINGS</span><h1>Pengaturan</h1><p>Profil bisnis dan preferensi offline.</p></div><button class="btn primary" onclick="saveSettings()">Simpan Perubahan</button></div><section class="card"><div class="form"><label>Nama Direktur<input id="pName" value="${db.profile.name}"></label><label>Jabatan<input id="pRole" value="${db.profile.role}"></label><label class="full">Brand<input id="pBrand" value="${db.profile.brand}"></label><label class="full">Fokus<input id="pFocus" value="${db.profile.focus}"></label></div></section><section class="card section"><h3>Data</h3><div class="actions"><button class="btn" onclick="exportBackup()">Backup JSON</button><button class="btn" onclick="document.getElementById('importFile').click()">Restore JSON</button><button class="btn danger" onclick="resetAll()">Reset Data Demo</button></div></section>`}
-function saveSettings(){if(!guard('settings'))return;db.profile.name=pName.value;db.profile.role=pRole.value;db.profile.brand=pBrand.value;db.profile.focus=pFocus.value;save();toast('Pengaturan disimpan.');render()}
+function settings(){if(!guard('settings'))return;const soundEnabled=db.profile.notificationSoundEnabled!==false;document.getElementById('content').innerHTML=`<div class="section-head"><div><span class="gold-label">SETTINGS</span><h1>Pengaturan</h1><p>Profil bisnis dan preferensi offline.</p></div><button class="btn primary" onclick="saveSettings()">Simpan Perubahan</button></div><section class="card"><div class="form"><label>Nama Direktur<input id="pName" value="${db.profile.name}"></label><label>Jabatan<input id="pRole" value="${db.profile.role}"></label><label class="full">Brand<input id="pBrand" value="${db.profile.brand}"></label><label class="full">Fokus<input id="pFocus" value="${db.profile.focus}"></label></div></section><section class="card section"><h3>Notifikasi Perangkat</h3><label style="display:flex;align-items:center;gap:8px"><input id="pNotificationSound" type="checkbox" ${soundEnabled?'checked':''}> Suara notifikasi</label><button class="btn small" style="margin-top:10px" onclick="testNotificationSound()">Uji Suara</button></section><section class="card section"><h3>Data</h3><div class="actions"><button class="btn" onclick="exportBackup()">Backup JSON</button><button class="btn" onclick="document.getElementById('importFile').click()">Restore JSON</button><button class="btn danger" onclick="resetAll()">Reset Data Demo</button></div></section>`}
+function testNotificationSound(){const wasEnabled=db.profile.notificationSoundEnabled;db.profile.notificationSoundEnabled=true;playNotificationSound();db.profile.notificationSoundEnabled=wasEnabled;toast('Suara notifikasi diuji.',true);}
+function saveSettings(){if(!guard('settings'))return;db.profile.name=pName.value;db.profile.role=pRole.value;db.profile.brand=pBrand.value;db.profile.focus=pFocus.value;db.profile.notificationSoundEnabled=document.getElementById('pNotificationSound')?.checked!==false;save();toast('Pengaturan disimpan.');render()}
 
 
 function show(content){
