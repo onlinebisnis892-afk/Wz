@@ -321,8 +321,13 @@ function toast(message,silent=false){
  el.textContent=message;
  el.style.display='block';
  if(!silent)playNotificationSound();
+ if(!silent)speakNotification(message);
  clearTimeout(window.__wzToastTimer);
  window.__wzToastTimer=setTimeout(()=>{el.style.display='none'},2200);
+}
+function speakNotification(message){
+ if(db?.profile?.notificationSoundEnabled===false||!('speechSynthesis' in window))return;
+ try{window.speechSynthesis.cancel();const utterance=new SpeechSynthesisUtterance(String(message));utterance.lang='id-ID';utterance.rate=.95;utterance.pitch=1;window.speechSynthesis.speak(utterance)}catch(e){console.debug('Suara nama notifikasi tidak tersedia.',e)}
 }
 function playNotificationSound(){
  if(db?.profile?.notificationSoundEnabled===false)return;
@@ -1014,7 +1019,7 @@ function saveShiftReport(){
  db.shiftReports=db.shiftReports||[];
  db.shiftReports.push(report);
  db.notifications.push({id:'N'+Date.now(),date:dateNow(),title:'Laporan shift tersimpan',message:`${emp.name} menyimpan laporan shift ${report.date}`,read:false});
- save();render();toast('Laporan shift berhasil disimpan.');
+ save();render();toast(`Laporan dari ${emp.name} masuk.`);
 }
 
 
