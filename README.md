@@ -15,7 +15,7 @@ Build online-first yang mempertahankan UI, alur, dan fallback offline dari sumbe
 - Jika API/database tidak tersedia, fungsi lokal tetap menjadi fallback.
 
 ## Database
-Vercel membutuhkan environment variable `DATABASE_URL` yang menunjuk ke PostgreSQL. Tanpa itu, API online tidak dapat bekerja.
+Vercel membutuhkan environment variable `WZDATABASE` yang menunjuk ke PostgreSQL Neon. Tanpa itu, API online tidak dapat bekerja.
 
 ## Akun seed
 - owner / owner123
