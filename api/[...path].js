@@ -104,6 +104,15 @@ async function employeeFor(id){
   return r.rows[0]||null;
 }
 function validMoney(n){return Number.isFinite(Number(n))&&Number(n)>=0;}
+function validDate(value){return /^\d{4}-\d{2}-\d{2}$/.test(String(value||''));}
+function validTransaction(t){
+  const servicePrice=Number(t.servicePrice||0),discount=Number(t.discount||0),total=Number(t.total||0);
+  return validDate(t.date)&&validMoney(servicePrice)&&validMoney(discount)&&validMoney(total)&&discount<=servicePrice&&Math.abs(total-Math.max(0,servicePrice-discount))<=0.001&&['SELESAI','VOID'].includes(String(t.status||'SELESAI'))&&['Tunai','QRIS','Transfer'].includes(String(t.payment||'Tunai'));
+}
+function validShift(r){
+  const values=['openingCash','cash','qris','cashExpense','physicalCash','totalPayment','expectedCash','cashDifference','serviceTotal','productTotal','totalOmzet'];
+  return validDate(r.date)&&values.every(key=>validMoney(r[key]))&&Math.abs(Number(r.cashDifference||0))<=0.001&&Math.abs(Number(r.physicalCash||0)-(Number(r.openingCash||0)+Number(r.cash||0)-Number(r.cashExpense||0)))<=0.001;
+}
 
 async function handler(req,res){
   try{
@@ -145,6 +154,8 @@ async function handler(req,res){
         if(txs.some(t=>String(t.employeeId)!==String(u.employee_id)))return send(res,403,{ok:false,error:'Karyawan hanya boleh sinkronkan transaksi miliknya.'});
         if(shifts.some(r=>String(r.employeeId)!==String(u.employee_id)))return send(res,403,{ok:false,error:'Karyawan hanya boleh sinkronkan laporan shift miliknya.'});
       }
+      if(txs.some(t=>!t.id||!t.employeeId||!validTransaction(t)))return send(res,400,{ok:false,error:'Data transaksi tidak valid.'});
+      if(shifts.some(r=>!r.id||!r.employeeId||!validShift(r)))return send(res,400,{ok:false,error:'Data laporan shift tidak valid.'});
       const employeeIds=[...new Set([...txs.map(t=>t.employeeId),...shifts.map(r=>r.employeeId)].filter(Boolean).map(String))];
       if(employeeIds.length){
         const er=await getPool().query('SELECT id,active FROM wz_employees WHERE id = ANY($1::text[])',[employeeIds]);
@@ -168,11 +179,11 @@ async function handler(req,res){
     if(path==='transaction' && req.method==='POST'){
       const u=await authUser(req);if(!u)return send(res,401,{ok:false,error:'Belum login.'});
       const t=await body(req);if(!t.id||!t.date||!t.employeeId)return send(res,400,{ok:false,error:'Data transaksi tidak lengkap.'});
+      if(!validTransaction(t))return send(res,400,{ok:false,error:'Nilai transaksi tidak valid.'});
       if(u.role==='employee'&&String(t.employeeId)!==String(u.employee_id))return send(res,403,{ok:false,error:'Karyawan hanya boleh membuat transaksi atas namanya sendiri.'});
       const te=await employeeFor(t.employeeId);if(!te)return send(res,400,{ok:false,error:'Karyawan tidak terdaftar.'});
       if(te.active===false)return send(res,400,{ok:false,error:'Karyawan sudah nonaktif.'});
       const servicePrice=Number(t.servicePrice||0),discount=Number(t.discount||0),total=Number(t.total||0);
-      if(!validMoney(servicePrice)||!validMoney(discount)||!validMoney(total)||discount>servicePrice||Math.abs(total-Math.max(0,servicePrice-discount))>0.001)return send(res,400,{ok:false,error:'Nilai transaksi tidak valid.'});
       const c=await getPool().connect();try{await c.query('BEGIN');await c.query(`INSERT INTO wz_transactions(id,date,customer_id,customer_name,service_id,service_name,service_price,employee_id,employee_name,total,payment,status,discount) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT(id) DO UPDATE SET status=EXCLUDED.status,total=EXCLUDED.total,updated_at=NOW()`,[t.id,t.date,t.customerId||null,t.customerName||null,t.serviceId||null,t.serviceName||null,servicePrice,t.employeeId,te.name,total,t.payment||'Tunai',t.status||'SELESAI',discount]);await c.query('COMMIT');return send(res,200,{ok:true,id:t.id});}catch(e){await c.query('ROLLBACK');throw e}finally{c.release()}
     }
     if(path==='transaction/void' && req.method==='POST'){

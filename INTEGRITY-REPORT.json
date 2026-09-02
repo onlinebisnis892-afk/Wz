@@ -19,8 +19,8 @@
     },
     {
       "path": "index.html",
-      "bytes": 148823,
-      "sha256": "735fb6b0488a70d18e933cfcf52713b35f2ff37ab3e412fca46fa0f05dcf45ba"
+      "bytes": 153199,
+      "sha256": "58299ed8967916d6947a9484b39c6a30bf91c60c47531ec5042aba00c69d026b"
     },
     {
       "path": "package.json",
@@ -29,8 +29,8 @@
     },
     {
       "path": "vercel.json",
-      "bytes": 76,
-      "sha256": "fb5aad28d2a3eb996c19eafdff3cc02667454e90fb556b275194beea082d544a"
+      "bytes": 331,
+      "sha256": "ae7fbd978cbbea5b37780bf70069cc88ba77f5d8a532350437222f37ab8fc9b2"
     },
     {
       "path": ".github/workflows/patch-online.yml",
@@ -39,8 +39,8 @@
     },
     {
       "path": "api/[...path].js",
-      "bytes": 23052,
-      "sha256": "00719ee155c26b41c6758a3ab13f0922a57513199c2149a388cb422ddb069bc0"
+      "bytes": 24129,
+      "sha256": "26f76443f449e7cc23c2d42f47ff368bc0ec5872d54ed66a3e7e735fe497ce3e"
     },
     {
       "path": "app/index-offline-reference.html",
@@ -49,13 +49,13 @@
     },
     {
       "path": "app/index.html",
-      "bytes": 148823,
-      "sha256": "735fb6b0488a70d18e933cfcf52713b35f2ff37ab3e412fca46fa0f05dcf45ba"
+      "bytes": 153199,
+      "sha256": "58299ed8967916d6947a9484b39c6a30bf91c60c47531ec5042aba00c69d026b"
     },
     {
       "path": "tools/online-bridge.js",
-      "bytes": 13474,
-      "sha256": "efbed7f11f47acb534b66ec3b1870327b36b9592adbdd175298a712296d572f7"
+      "bytes": 14719,
+      "sha256": "48e6206aa334f5b71b60923599d41fe82d40ed02f2c13c302801c2926f2a1c18"
     },
     {
       "path": "tools/patch-online.js",
