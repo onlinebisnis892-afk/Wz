@@ -1,0 +1,66 @@
+{
+  "phase": "14-final-root-fix",
+  "status": "ready-for-vercel-redeploy",
+  "notes": [
+    "Root index.html added to eliminate Vercel root 404.",
+    "vercel.json rewrites / to /index.html.",
+    "Original app/index.html retained."
+  ],
+  "files": [
+    {
+      "path": ".env.example",
+      "bytes": 75,
+      "sha256": "23fcf2067ec36623f1c28eff06a9e672413100503f0e650a93955b4df1350ff9"
+    },
+    {
+      "path": "README.md",
+      "bytes": 2156,
+      "sha256": "7cc5fef28ec3adf20cb3f656b3f8d87cd11d936c6ebc6c4fe81ad71a226b9d7e"
+    },
+    {
+      "path": "index.html",
+      "bytes": 148823,
+      "sha256": "735fb6b0488a70d18e933cfcf52713b35f2ff37ab3e412fca46fa0f05dcf45ba"
+    },
+    {
+      "path": "package.json",
+      "bytes": 110,
+      "sha256": "741b934ff44b4991fc93069a4db4da634ce9c1daa57133a907d340dbf2e28f2f"
+    },
+    {
+      "path": "vercel.json",
+      "bytes": 76,
+      "sha256": "fb5aad28d2a3eb996c19eafdff3cc02667454e90fb556b275194beea082d544a"
+    },
+    {
+      "path": ".github/workflows/patch-online.yml",
+      "bytes": 712,
+      "sha256": "72db69c2f4fdc9cfdce9e8678fb15ee75760f90edcf0c67271f86b0140647114"
+    },
+    {
+      "path": "api/[...path].js",
+      "bytes": 23052,
+      "sha256": "00719ee155c26b41c6758a3ab13f0922a57513199c2149a388cb422ddb069bc0"
+    },
+    {
+      "path": "app/index-offline-reference.html",
+      "bytes": 135284,
+      "sha256": "5d607c31d4f78dd8399eae3508249c3c8698e8cc53c55fd807caef156f8b505c"
+    },
+    {
+      "path": "app/index.html",
+      "bytes": 148823,
+      "sha256": "735fb6b0488a70d18e933cfcf52713b35f2ff37ab3e412fca46fa0f05dcf45ba"
+    },
+    {
+      "path": "tools/online-bridge.js",
+      "bytes": 13474,
+      "sha256": "efbed7f11f47acb534b66ec3b1870327b36b9592adbdd175298a712296d572f7"
+    },
+    {
+      "path": "tools/patch-online.js",
+      "bytes": 583,
+      "sha256": "3eacab0695c21a111cc94938d931c581b2453068f0804c5639b775c419bee560"
+    }
+  ]
+}
