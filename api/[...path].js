@@ -4,7 +4,7 @@ const crypto = require('crypto');
 let pool;
 function getPool(){
   if(!process.env.WZDATABASE) throw new Error('WZDATABASE belum dikonfigurasi di Vercel.');
-  if(!pool) pool=new Pool({connectionString:process.env.WZDATABASE,ssl:{rejectUnauthorized:false},max:5});
+  if(!pool) pool=new Pool({connectionString:process.env.WZDATABASE,ssl:{rejectUnauthorized:false},max:5,connectionTimeoutMillis:10000,idleTimeoutMillis:30000});
   return pool;
 }
 
