@@ -1451,7 +1451,7 @@ async function syncBusiness(){
     const fresh=await api('business');
     if(Array.isArray(fresh.transactions)){
       const byId=new Map((db.transactions||[]).map(x=>[x.id,x]));
-      for(const t of fresh.transactions){const x=byId.get(t.id)||{id:t.id};Object.assign(x,{date:String(t.date).slice(0,10),customerId:t.customerId||x.customerId||'',customerName:t.customerName||x.customerName||'',serviceId:t.serviceId||x.serviceId||'',serviceName:t.serviceName||x.serviceName||'',servicePrice:Number(t.servicePrice||x.servicePrice||0),employeeId:t.employeeId||x.employeeId||'',employeeName:t.employeeName||x.employeeName||'',total:Number(t.total||0),payment:t.payment||'Tunai',status:t.status||'SELESAI',discount:Number(t.discount||x.discount||0)});
+      for(const t of fresh.transactions){const x=byId.get(t.id)||{id:t.id};Object.assign(x,{date:String(t.date).slice(0,10),customerId:t.customerId||x.customerId||'',customerName:t.customerName||x.customerName||'',serviceId:t.serviceId||x.serviceId||'',serviceName:t.serviceName||x.serviceName||'',servicePrice:Number(t.servicePrice||x.servicePrice||0),employeeId:t.employeeId||x.employeeId||'',employeeName:t.employeeName||x.employeeName||'',total:Number(t.total||0),payment:t.payment||'Tunai',status:t.status||'SELESAI',discount:Number(t.discount||x.discount||0),updatedAt:t.updatedAt||x.updatedAt||null});
         if(t.customerId&&t.customerName&&!getCustomer(t.customerId))db.customers.push({id:t.customerId,name:t.customerName,phone:'',visits:0,total:0,status:'Aktif'});
         if(t.serviceId&&t.serviceName&&!getService(t.serviceId))db.services.push({id:t.serviceId,name:t.serviceName,category:'Umum',price:Number(t.servicePrice||0),duration:0,active:true});
         if(t.employeeId&&t.employeeName&&!getEmployee(t.employeeId))db.employees.push({id:t.employeeId,name:t.employeeName,role:'Barber',salary:0,commission:0,target:0,attendance:0,eval:0,active:true,branchId:null});
@@ -1459,7 +1459,7 @@ async function syncBusiness(){
     }
     if(Array.isArray(fresh.shiftReports)){
       const byId=new Map((db.shiftReports||[]).map(x=>[x.id,x]));
-      for(const rr of fresh.shiftReports){const x=byId.get(rr.id)||{id:rr.id};Object.assign(x,{date:String(rr.date).slice(0,10),employeeId:rr.employeeId||x.employeeId,employeeName:rr.employeeName||x.employeeName,shiftType:rr.shiftType||x.shiftType,customers:Number(rr.customers||0),openingCash:Number(rr.openingCash||0),cash:Number(rr.cash||0),qris:Number(rr.qris||0),cashExpense:Number(rr.cashExpense||0),physicalCash:Number(rr.physicalCash||0),totalPayment:Number(rr.totalPayment||0),expectedCash:Number(rr.expectedCash||0),cashDifference:Number(rr.cashDifference||0),serviceTotal:Number(rr.serviceTotal||0),productTotal:Number(rr.productTotal||0),totalOmzet:Number(rr.totalOmzet||0),services:rr.services||[],products:rr.products||[],note:rr.note||''});if(!byId.has(rr.id))db.shiftReports.push(x);}
+      for(const rr of fresh.shiftReports){const x=byId.get(rr.id)||{id:rr.id};Object.assign(x,{date:String(rr.date).slice(0,10),employeeId:rr.employeeId||x.employeeId,employeeName:rr.employeeName||x.employeeName,shiftType:rr.shiftType||x.shiftType,customers:Number(rr.customers||0),openingCash:Number(rr.openingCash||0),cash:Number(rr.cash||0),qris:Number(rr.qris||0),cashExpense:Number(rr.cashExpense||0),physicalCash:Number(rr.physicalCash||0),totalPayment:Number(rr.totalPayment||0),expectedCash:Number(rr.expectedCash||0),cashDifference:Number(rr.cashDifference||0),serviceTotal:Number(rr.serviceTotal||0),productTotal:Number(rr.productTotal||0),totalOmzet:Number(rr.totalOmzet||0),services:rr.services||[],products:rr.products||[],note:rr.note||'',updatedAt:rr.updatedAt||x.updatedAt||null});if(!byId.has(rr.id))db.shiftReports.push(x);}
     }
     save();
     window.WZOnlineBusiness.lastConflicts=conflicts;
@@ -1468,6 +1468,47 @@ async function syncBusiness(){
   }catch(e){console.warn('Online business sync skipped:',e.message||e);return false;}
 }
 window.WZOnlineBusiness={sync:syncBusiness,lastConflicts:[]};
+
+let shiftNotificationPollInFlight=false;
+async function pollNewShiftReports(){
+  if(!currentUser||shiftNotificationPollInFlight)return;
+  shiftNotificationPollInFlight=true;
+  try{
+    const response=await api('business');
+    const reports=Array.isArray(response.shiftReports)?response.shiftReports:[];
+    const cursorKey='wz-shift-notification-cursor:'+String(currentUser.username||currentUser.employeeId||currentUser.role||'user');
+    let cursor={};
+    let hasBaseline=false;
+    try{const stored=JSON.parse(localStorage.getItem(cursorKey)||'null');hasBaseline=!!stored?.initialized;cursor=stored?.reports||{}}catch{}
+    const nextCursor={};
+    for(const report of reports){
+      const id=String(report.id||'');
+      if(!id||/^KYONGSHIFT\d+$/i.test(id))continue;
+      const updatedAt=String(report.updatedAt||report.savedAt||report.date||'');
+      const previous=cursor[id];
+      nextCursor[id]=updatedAt;
+      const changed=hasBaseline&&previous!==undefined&&previous!==updatedAt;
+      const isNew=hasBaseline&&previous===undefined;
+      const isOtherEmployee=String(report.employeeId||'')!==String(currentUser.employeeId||'');
+      if((isNew||changed)&&isOtherEmployee){
+        const eventId=`server-shift:${id}:${updatedAt}`;
+        toast(`Laporan shift ${report.employeeName||report.employeeId||''} tersedia.`,false,eventId);
+      }
+    }
+    try{localStorage.setItem(cursorKey,JSON.stringify({initialized:true,reports:nextCursor}))}catch{}
+  }catch(e){console.warn('Remote shift notification check skipped:',e.message||e)}
+  finally{shiftNotificationPollInFlight=false}
+}
+function startShiftNotificationPolling(){
+  if(window.__wzShiftNotificationPollingStarted)return;
+  window.__wzShiftNotificationPollingStarted=true;
+  pollNewShiftReports();
+  window.__wzShiftNotificationTimer=setInterval(pollNewShiftReports,30000);
+  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')pollNewShiftReports()});
+  window.addEventListener('focus',pollNewShiftReports);
+}
+window.WZOnlineBusiness.pollNewShiftReports=pollNewShiftReports;
+startShiftNotificationPolling();
 
 async function syncEmployeesFromServer(){
   if(!currentUser || !['owner','manager'].includes(currentUser.role)) return;
@@ -1492,9 +1533,9 @@ async function syncEmployeesFromServer(){
 }
 window.WZOnlineEmployee.syncEmployeesFromServer=syncEmployeesFromServer;
 const localLogin=window.login;
-window.login=async function(ev){ev.preventDefault();const u=(document.getElementById('loginUser')?.value||'').trim(),p=document.getElementById('loginPass')?.value||'',err=document.getElementById('loginError');try{const r=await api('auth/login',{method:'POST',body:JSON.stringify({username:u,password:p})});if(err)err.style.display='none';currentUser=r.user;sessionStorage.setItem(SESSION_STORE,JSON.stringify(r.user));const screen=document.getElementById('loginScreen');if(screen)screen.style.display='none';const badge=document.getElementById('roleBadge');if(badge)badge.textContent=r.user.name;render();await syncEmployeesFromServer();await syncBusiness();}catch(e){if(err){err.textContent=e.message||'Login gagal.';err.style.display='block';}else alert(e.message||'Login gagal.');if(/Failed to fetch|NetworkError|WZDATABASE|500|Endpoint tidak ditemukan/i.test(String(e.message||''))&&typeof localLogin==='function'){try{localLogin(ev)}catch{}}}};
+window.login=async function(ev){ev.preventDefault();const u=(document.getElementById('loginUser')?.value||'').trim(),p=document.getElementById('loginPass')?.value||'',err=document.getElementById('loginError');try{const r=await api('auth/login',{method:'POST',body:JSON.stringify({username:u,password:p})});if(err)err.style.display='none';currentUser=r.user;sessionStorage.setItem(SESSION_STORE,JSON.stringify(r.user));const screen=document.getElementById('loginScreen');if(screen)screen.style.display='none';const badge=document.getElementById('roleBadge');if(badge)badge.textContent=r.user.name;render();await syncEmployeesFromServer();await syncBusiness();pollNewShiftReports();}catch(e){if(err){err.textContent=e.message||'Login gagal.';err.style.display='block';}else alert(e.message||'Login gagal.');if(/Failed to fetch|NetworkError|WZDATABASE|500|Endpoint tidak ditemukan/i.test(String(e.message||''))&&typeof localLogin==='function'){try{localLogin(ev)}catch{}}}};
 window.logout=async function(){try{await api('auth/logout',{method:'POST'})}catch{}sessionStorage.removeItem(SESSION_STORE);currentUser=null;const screen=document.getElementById('loginScreen');if(screen)screen.style.display='flex';const u=document.getElementById('loginUser'),pw=document.getElementById('loginPass');if(u)u.value='';if(pw)pw.value='';};
-api('auth/me').then(r=>{currentUser=r.user;sessionStorage.setItem(SESSION_STORE,JSON.stringify(r.user));const screen=document.getElementById('loginScreen');if(screen)screen.style.display='none';const badge=document.getElementById('roleBadge');if(badge)badge.textContent=r.user.name;render();syncEmployeesFromServer();syncBusiness();}).catch(()=>{});
+api('auth/me').then(r=>{currentUser=r.user;sessionStorage.setItem(SESSION_STORE,JSON.stringify(r.user));const screen=document.getElementById('loginScreen');if(screen)screen.style.display='none';const badge=document.getElementById('roleBadge');if(badge)badge.textContent=r.user.name;render();syncEmployeesFromServer();syncBusiness();pollNewShiftReports();}).catch(()=>{});
 const localSaveEmployee=window.saveEmployee;
 window.saveEmployee=async function(id){if(!guard('employees'))return;const name=(document.getElementById('eName')?.value||'').trim(),role=document.getElementById('eRole')?.value||'Barber',password=(document.getElementById('ePassword')?.value||'').trim(),branchId=document.getElementById('eBranch')?.value||'',salary=Number(document.getElementById('eSalary')?.value||0),target=Number(document.getElementById('eTarget')?.value||0);if(!name)return alert('Isi nama karyawan');if(!password)return alert('Isi password login');if(!branchId)return alert('Pilih cabang karyawan');let employeeId=id||'';if(!employeeId){const next=Math.max(0,...(db.employees||[]).map(x=>Number(String(x.id).replace(/\D/g,''))||0))+1;employeeId='E'+String(next).padStart(3,'0');}const username=(name.trim().toLowerCase().replace(/[^a-z0-9]+/g,''))||'employee';try{await api('employees',{method:id?'PUT':'POST',body:JSON.stringify({id:employeeId,name,role,password,username,branchId,salary,target})});if(typeof localSaveEmployee==='function')await localSaveEmployee(id||'');toast(id?'Data karyawan & akun online diperbarui.':'Karyawan & akun login online dibuat.');}catch(e){alert('Gagal menyimpan ke server: '+e.message);}};
 const localDeleteEmployee=window.deleteEmployee;
