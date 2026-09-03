@@ -2,9 +2,13 @@ const { Pool } = require('pg');
 const crypto = require('crypto');
 
 let pool;
+function databaseUrl(){
+  return process.env.WZDATABASE||process.env.DATABASE_URL||process.env.POSTGRES_URL||process.env.POSTGRES_URL_NON_POOLING||process.env.NEON_DATABASE_URL;
+}
 function getPool(){
-  if(!process.env.WZDATABASE) throw new Error('WZDATABASE belum dikonfigurasi di Vercel.');
-  if(!pool) pool=new Pool({connectionString:process.env.WZDATABASE,ssl:{rejectUnauthorized:false},max:5,connectionTimeoutMillis:10000,idleTimeoutMillis:30000});
+  const url=databaseUrl();
+  if(!url) throw new Error('Environment variable database belum dikonfigurasi di Vercel. Gunakan WZDATABASE, DATABASE_URL, atau POSTGRES_URL.');
+  if(!pool) pool=new Pool({connectionString:url,ssl:{rejectUnauthorized:false},max:5,connectionTimeoutMillis:10000,idleTimeoutMillis:30000});
   return pool;
 }
 
