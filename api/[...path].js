@@ -188,6 +188,18 @@ async function handler(req,res){
       const sh=await p.query(shSql,params);
       return send(res,200,{ok:true,transactions:tx.rows,shiftReports:sh.rows});
     }
+    if(path==='reset-business' && req.method==='POST'){
+      const u=await authUser(req);if(!u)return send(res,401,{ok:false,error:'Belum login.'});
+      if(!['owner','manager'].includes(u.role))return send(res,403,{ok:false,error:'Hanya Owner/Manager yang dapat mereset data bisnis.'});
+      const client=await getPool().connect();
+      try{
+        await client.query('BEGIN');
+        const tx=await client.query('DELETE FROM wz_transactions RETURNING id');
+        const shifts=await client.query('DELETE FROM wz_shift_reports RETURNING id');
+        await client.query('COMMIT');
+        return send(res,200,{ok:true,transactions:tx.rowCount,shiftReports:shifts.rowCount,total:tx.rowCount+shifts.rowCount});
+      }catch(e){await client.query('ROLLBACK');throw e}finally{client.release()}
+    }
     if(path==='sync-business' && req.method==='POST'){
       const u=await authUser(req);if(!u)return send(res,401,{ok:false,error:'Belum login.'});
       const b=await body(req),txs=Array.isArray(b.transactions)?b.transactions:[],shifts=Array.isArray(b.shiftReports)?b.shiftReports:[];
