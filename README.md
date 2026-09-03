@@ -13,9 +13,18 @@ Build online-first yang mempertahankan UI, alur, dan fallback offline dari sumbe
 - Validasi server untuk ID/status karyawan, nilai transaksi, rumus total transaksi, dan selisih kas shift.
 - PostgreSQL transaction block untuk operasi sinkronisasi dan penghapusan karyawan beserta akun.
 - Jika API/database tidak tersedia, fungsi lokal tetap menjadi fallback.
+- Web Push untuk notifikasi saat aplikasi tertutup tersedia setelah perangkat mengizinkan notifikasi dan server dikonfigurasi dengan VAPID.
 
 ## Database
 Vercel membutuhkan environment variable database yang menunjuk ke PostgreSQL Neon. API menerima `WZDATABASE` (prioritas utama), `DATABASE_URL`, `POSTGRES_URL`, `POSTGRES_URL_NON_POOLING`, atau `NEON_DATABASE_URL`, sehingga URL yang otomatis dibuat Vercel dapat langsung digunakan.
+
+## Konfigurasi Web Push
+Tambahkan environment variable berikut di Vercel sebelum memakai notifikasi saat aplikasi tertutup:
+- `VAPID_PUBLIC_KEY`: public key VAPID.
+- `VAPID_PRIVATE_KEY`: private key VAPID, hanya di server dan jangan dimasukkan ke repository.
+- `VAPID_SUBJECT`: URL kontak, misalnya `mailto:admin@example.com`.
+
+Buat pasangan key dengan `npx web-push generate-vapid-keys`. Setelah deployment, login di setiap perangkat, buka Pengaturan, lalu aktifkan Notifikasi Android. Perangkat akan menerima banner laporan shift saat aplikasi sedang tertutup selama browser/PWA dan sistem Android mengizinkan notifikasi.
 
 ## Akun seed
 - owner / owner123

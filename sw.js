@@ -18,6 +18,20 @@ self.addEventListener('activate', event => {
   );
 });
 
+self.addEventListener('push', event => {
+  let data = {};
+  try { data = event.data ? event.data.json() : {}; } catch {}
+  event.waitUntil(self.registration.showNotification(data.title || 'WZ MANAGE PRO', {
+    body: data.body || 'Ada pembaruan baru.',
+    icon: data.icon || '/icons/icon-192.png',
+    badge: data.badge || data.icon || '/icons/icon-192.png',
+    timestamp: Number(data.timestamp) || Date.now(),
+    tag: data.tag || 'wz-notification',
+    renotify: false,
+    data: { url: data.url || '/' }
+  }));
+});
+
 self.addEventListener('message', event => {
   const data = event.data;
   if (!data || data.type !== 'WZ_SHOW_NOTIFICATION' || !data.id || shownNotificationIds.has(data.id)) return;

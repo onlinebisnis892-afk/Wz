@@ -320,12 +320,30 @@ function load(){
 }
 function requestNotificationPermission(){
  if(!('Notification' in window)){toast('Browser tidak mendukung notifikasi perangkat.',true);return Promise.resolve('unsupported')}
- if(Notification.permission==='granted'){toast('Notifikasi Android sudah aktif.',true);return Promise.resolve('granted')}
+ if(Notification.permission==='granted'){registerPushSubscription();toast('Notifikasi Android sudah aktif.',true);return Promise.resolve('granted')}
  if(Notification.permission==='denied'){toast('Izin notifikasi ditolak di pengaturan browser.',true);return Promise.resolve('denied')}
  return Notification.requestPermission().then(permission=>{
+  if(permission==='granted')registerPushSubscription();
   toast(permission==='granted'?'Notifikasi Android berhasil diaktifkan.':'Izin notifikasi belum diberikan.',true);
   return permission;
  }).catch(()=>{toast('Permintaan izin notifikasi tidak tersedia.',true);return 'error'});
+}
+function pushKeyBytes(value){
+ const padding='='.repeat((4-value.length%4)%4),base64=(value+padding).replace(/-/g,'+').replace(/_/g,'/');
+ const raw=atob(base64),bytes=new Uint8Array(raw.length);
+ for(let i=0;i<raw.length;i++)bytes[i]=raw.charCodeAt(i);
+ return bytes;
+}
+async function registerPushSubscription(){
+ if(!('serviceWorker' in navigator)||!('PushManager' in window)||!('Notification' in window)||Notification.permission!=='granted')return false;
+ try{
+  const response=await fetch('/api/push/vapid-public-key',{credentials:'include'});
+  if(!response.ok)return false;
+  const data=await response.json(),registration=await navigator.serviceWorker.ready;
+  const subscription=await registration.pushManager.getSubscription()||await registration.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:pushKeyBytes(data.publicKey)});
+  const saved=await fetch('/api/push/subscribe',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify(subscription)});
+  return saved.ok;
+ }catch(error){console.debug('Registrasi Web Push tidak tersedia.',error);return false}
 }
 function notifyAndroid(message,notificationId){
  if(!('Notification' in window)||Notification.permission!=='granted')return;
@@ -1533,9 +1551,9 @@ async function syncEmployeesFromServer(){
 }
 window.WZOnlineEmployee.syncEmployeesFromServer=syncEmployeesFromServer;
 const localLogin=window.login;
-window.login=async function(ev){ev.preventDefault();const u=(document.getElementById('loginUser')?.value||'').trim(),p=document.getElementById('loginPass')?.value||'',err=document.getElementById('loginError');try{const r=await api('auth/login',{method:'POST',body:JSON.stringify({username:u,password:p})});if(err)err.style.display='none';currentUser=r.user;sessionStorage.setItem(SESSION_STORE,JSON.stringify(r.user));const screen=document.getElementById('loginScreen');if(screen)screen.style.display='none';const badge=document.getElementById('roleBadge');if(badge)badge.textContent=r.user.name;render();await syncEmployeesFromServer();await syncBusiness();pollNewShiftReports();}catch(e){if(err){err.textContent=e.message||'Login gagal.';err.style.display='block';}else alert(e.message||'Login gagal.');if(/Failed to fetch|NetworkError|WZDATABASE|500|Endpoint tidak ditemukan/i.test(String(e.message||''))&&typeof localLogin==='function'){try{localLogin(ev)}catch{}}}};
+window.login=async function(ev){ev.preventDefault();const u=(document.getElementById('loginUser')?.value||'').trim(),p=document.getElementById('loginPass')?.value||'',err=document.getElementById('loginError');try{const r=await api('auth/login',{method:'POST',body:JSON.stringify({username:u,password:p})});if(err)err.style.display='none';currentUser=r.user;sessionStorage.setItem(SESSION_STORE,JSON.stringify(r.user));const screen=document.getElementById('loginScreen');if(screen)screen.style.display='none';const badge=document.getElementById('roleBadge');if(badge)badge.textContent=r.user.name;render();await syncEmployeesFromServer();await syncBusiness();pollNewShiftReports();if('Notification' in window&&Notification.permission==='granted')registerPushSubscription();}catch(e){if(err){err.textContent=e.message||'Login gagal.';err.style.display='block';}else alert(e.message||'Login gagal.');if(/Failed to fetch|NetworkError|WZDATABASE|500|Endpoint tidak ditemukan/i.test(String(e.message||''))&&typeof localLogin==='function'){try{localLogin(ev)}catch{}}}};
 window.logout=async function(){try{await api('auth/logout',{method:'POST'})}catch{}sessionStorage.removeItem(SESSION_STORE);currentUser=null;const screen=document.getElementById('loginScreen');if(screen)screen.style.display='flex';const u=document.getElementById('loginUser'),pw=document.getElementById('loginPass');if(u)u.value='';if(pw)pw.value='';};
-api('auth/me').then(r=>{currentUser=r.user;sessionStorage.setItem(SESSION_STORE,JSON.stringify(r.user));const screen=document.getElementById('loginScreen');if(screen)screen.style.display='none';const badge=document.getElementById('roleBadge');if(badge)badge.textContent=r.user.name;render();syncEmployeesFromServer();syncBusiness();pollNewShiftReports();}).catch(()=>{});
+api('auth/me').then(r=>{currentUser=r.user;sessionStorage.setItem(SESSION_STORE,JSON.stringify(r.user));const screen=document.getElementById('loginScreen');if(screen)screen.style.display='none';const badge=document.getElementById('roleBadge');if(badge)badge.textContent=r.user.name;render();syncEmployeesFromServer();syncBusiness();pollNewShiftReports();if('Notification' in window&&Notification.permission==='granted')registerPushSubscription();}).catch(()=>{});
 const localSaveEmployee=window.saveEmployee;
 window.saveEmployee=async function(id){if(!guard('employees'))return;const name=(document.getElementById('eName')?.value||'').trim(),role=document.getElementById('eRole')?.value||'Barber',password=(document.getElementById('ePassword')?.value||'').trim(),branchId=document.getElementById('eBranch')?.value||'',salary=Number(document.getElementById('eSalary')?.value||0),target=Number(document.getElementById('eTarget')?.value||0);if(!name)return alert('Isi nama karyawan');if(!password)return alert('Isi password login');if(!branchId)return alert('Pilih cabang karyawan');let employeeId=id||'';if(!employeeId){const next=Math.max(0,...(db.employees||[]).map(x=>Number(String(x.id).replace(/\D/g,''))||0))+1;employeeId='E'+String(next).padStart(3,'0');}const username=(name.trim().toLowerCase().replace(/[^a-z0-9]+/g,''))||'employee';try{await api('employees',{method:id?'PUT':'POST',body:JSON.stringify({id:employeeId,name,role,password,username,branchId,salary,target})});if(typeof localSaveEmployee==='function')await localSaveEmployee(id||'');toast(id?'Data karyawan & akun online diperbarui.':'Karyawan & akun login online dibuat.');}catch(e){alert('Gagal menyimpan ke server: '+e.message);}};
 const localDeleteEmployee=window.deleteEmployee;

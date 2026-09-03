@@ -1,5 +1,6 @@
 const { Pool } = require('pg');
 const crypto = require('crypto');
+const webpush = require('web-push');
 
 let pool;
 function databaseUrl(){
@@ -31,6 +32,17 @@ function defaultPassword(name){return String(name||'').trim().toLowerCase().repl
 function safeServerError(error){
   const message = error && error.message ? String(error.message) : 'Server error';
   return process.env.NODE_ENV === 'production' ? 'Server sedang tidak tersedia. Silakan coba lagi nanti.' : message;
+}
+function pushConfigured(){return !!(process.env.VAPID_PUBLIC_KEY&&process.env.VAPID_PRIVATE_KEY&&process.env.VAPID_SUBJECT)}
+async function sendShiftPushes(report,senderId){
+  if(!pushConfigured())return;
+  webpush.setVapidDetails(process.env.VAPID_SUBJECT,process.env.VAPID_PUBLIC_KEY,process.env.VAPID_PRIVATE_KEY);
+  const p=getPool(),recipients=await p.query('SELECT s.id,s.endpoint,s.p256dh,s.auth FROM wz_push_subscriptions s JOIN wz_users u ON u.id=s.user_id WHERE u.active=true AND s.user_id<>$1',[senderId]);
+  const payload=JSON.stringify({title:'WZ MANAGE PRO',body:`Laporan shift ${report.employeeName||report.employeeId||''} tersedia.`,icon:'/icons/icon-192.png',badge:'/icons/icon-192.png',tag:`wz-shift-${report.id}`,url:'/'});
+  await Promise.all(recipients.rows.map(async subscription=>{
+    try{await webpush.sendNotification({endpoint:subscription.endpoint,keys:{p256dh:subscription.p256dh,auth:subscription.auth}},payload,{TTL:86400});}
+    catch(error){if(error.statusCode===404||error.statusCode===410)await p.query('DELETE FROM wz_push_subscriptions WHERE id=$1',[subscription.id]);}
+  }));
 }
 
 let schemaPromise;
@@ -72,6 +84,12 @@ async function schema(){
     );
     CREATE INDEX IF NOT EXISTS wz_shift_reports_date_idx ON wz_shift_reports(date);
     CREATE INDEX IF NOT EXISTS wz_shift_reports_employee_idx ON wz_shift_reports(employee_id);
+    CREATE TABLE IF NOT EXISTS wz_push_subscriptions(
+      id BIGSERIAL PRIMARY KEY,user_id BIGINT NOT NULL REFERENCES wz_users(id) ON DELETE CASCADE,
+      endpoint TEXT UNIQUE NOT NULL,p256dh TEXT NOT NULL,auth TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS wz_push_subscriptions_user_idx ON wz_push_subscriptions(user_id);
   `);
   await p.query(`
     INSERT INTO wz_branches(id,name,active) VALUES
@@ -144,6 +162,22 @@ async function handler(req,res){
       const c=String(req.headers.cookie||''),m=c.match(/(?:^|;\s*)wz_session=([^;]+)/);if(m)await getPool().query('DELETE FROM wz_sessions WHERE token_hash=$1',[tokenHash(decodeURIComponent(m[1]))]);
       return send(res,200,{ok:true},{'Set-Cookie':cookie('wz_session','',0)});
     }
+    if(path==='push/vapid-public-key' && req.method==='GET'){
+      const u=await authUser(req);if(!u)return send(res,401,{ok:false,error:'Belum login.'});
+      if(!pushConfigured())return send(res,503,{ok:false,error:'Web Push belum dikonfigurasi di server.'});
+      return send(res,200,{ok:true,publicKey:process.env.VAPID_PUBLIC_KEY});
+    }
+    if(path==='push/subscribe' && req.method==='POST'){
+      const u=await authUser(req);if(!u)return send(res,401,{ok:false,error:'Belum login.'});
+      const b=await body(req),endpoint=String(b.endpoint||''),keys=b.keys||{},p256dh=String(keys.p256dh||''),auth=String(keys.auth||'');
+      if(!endpoint||!p256dh||!auth)return send(res,400,{ok:false,error:'Subscription push tidak valid.'});
+      await getPool().query('INSERT INTO wz_push_subscriptions(user_id,endpoint,p256dh,auth,updated_at) VALUES($1,$2,$3,$4,NOW()) ON CONFLICT(endpoint) DO UPDATE SET user_id=EXCLUDED.user_id,p256dh=EXCLUDED.p256dh,auth=EXCLUDED.auth,updated_at=NOW()',[u.id,endpoint,p256dh,auth]);
+      return send(res,200,{ok:true});
+    }
+    if(path==='push/unsubscribe' && req.method==='POST'){
+      const u=await authUser(req);if(!u)return send(res,401,{ok:false,error:'Belum login.'});
+      const b=await body(req);if(b.endpoint)await getPool().query('DELETE FROM wz_push_subscriptions WHERE user_id=$1 AND endpoint=$2',[u.id,String(b.endpoint)]);return send(res,200,{ok:true});
+    }
     if(path==='business' && req.method==='GET'){
       const u=await authUser(req);if(!u)return send(res,401,{ok:false,error:'Belum login.'});
       const p=getPool();
@@ -182,6 +216,7 @@ async function handler(req,res){
         }
         await client.query('COMMIT');
       }catch(e){await client.query('ROLLBACK');throw e}finally{client.release()}
+      await Promise.all(shifts.map(shift=>sendShiftPushes(shift,u.id).catch(()=>{})));
       return send(res,200,{ok:true,transactions:txs.length,shiftReports:shifts.length});
     }
     if(path==='transaction' && req.method==='POST'){
@@ -200,6 +235,7 @@ async function handler(req,res){
     if(path==='shift-report' && req.method==='POST'){
       const u=await authUser(req);if(!u)return send(res,401,{ok:false,error:'Belum login.'});const r=await body(req);if(!r.id||!r.date||!r.employeeId)return send(res,400,{ok:false,error:'Data shift tidak lengkap.'});if(u.role==='employee'&&String(r.employeeId)!==String(u.employee_id))return send(res,403,{ok:false,error:'Karyawan hanya boleh menyimpan shift miliknya.'});const re=await employeeFor(r.employeeId);if(!re)return send(res,400,{ok:false,error:'Karyawan tidak terdaftar.'});if(re.active===false)return send(res,400,{ok:false,error:'Karyawan sudah nonaktif.'});const cash=Number(r.cash||0),qris=Number(r.qris||0),opening=Number(r.openingCash||0),expense=Number(r.cashExpense||0),physical=Number(r.physicalCash||0);if([cash,qris,opening,expense,physical].some(n=>!validMoney(n)))return send(res,400,{ok:false,error:'Nilai kas shift tidak valid.'});const expected=opening+cash-expense,difference=physical-expected;if(Math.abs(difference)>0.001)return send(res,400,{ok:false,error:'Selisih kasir harus Rp 0.'});
       await getPool().query(`INSERT INTO wz_shift_reports(id,date,employee_id,employee_name,shift_type,customers,opening_cash,cash,qris,cash_expense,physical_cash,total_payment,expected_cash,cash_difference,service_total,product_total,total_omzet,services,products,note,saved_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18::jsonb,$19::jsonb,$20,$21) ON CONFLICT(id) DO UPDATE SET customers=EXCLUDED.customers,opening_cash=EXCLUDED.opening_cash,cash=EXCLUDED.cash,qris=EXCLUDED.qris,cash_expense=EXCLUDED.cash_expense,physical_cash=EXCLUDED.physical_cash,total_payment=EXCLUDED.total_payment,expected_cash=EXCLUDED.expected_cash,cash_difference=EXCLUDED.cash_difference,service_total=EXCLUDED.service_total,product_total=EXCLUDED.product_total,total_omzet=EXCLUDED.total_omzet,services=EXCLUDED.services,products=EXCLUDED.products,note=EXCLUDED.note,saved_at=EXCLUDED.saved_at,updated_at=NOW()`,[r.id,r.date,r.employeeId,r.employeeName||u.name,r.shiftType||null,Number(r.customers||0),Number(r.openingCash||0),Number(r.cash||0),Number(r.qris||0),Number(r.cashExpense||0),Number(r.physicalCash||0),Number(r.totalPayment||0),Number(r.expectedCash||0),Number(r.cashDifference||0),Number(r.serviceTotal||0),Number(r.productTotal||0),Number(r.totalOmzet||0),JSON.stringify(r.services||[]),JSON.stringify(r.products||[]),r.note||null,r.savedAt||new Date().toISOString()]);
+      await sendShiftPushes(r,u.id).catch(()=>{});
       return send(res,200,{ok:true,id:r.id});
     }
     if(path==='employees' && req.method==='GET'){
