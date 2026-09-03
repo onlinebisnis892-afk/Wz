@@ -144,6 +144,9 @@ footer{text-align:center;color:#5e646d;font-size:10px;padding:34px 0 10px}
 const STORE='wz-manage-pro-offline-v3-transaction-test';
 const AUTH_STORE='wz-manage-pro-auth-v1';
 const SESSION_STORE='wz-manage-pro-session-v1';
+const ANDROID_NOTIFICATION_TITLE='WZ MANAGE PRO';
+const ANDROID_NOTIFICATION_ICON='/icons/icon-192.png';
+const androidNotificationKeys=new Map();
 const AUTH_DEFAULTS=[
  {username:'owner',password:'owner123',role:'owner',name:'OWNER'},
  {username:'manager',password:'manager123',role:'manager',name:'MANAGER'},
@@ -315,13 +318,41 @@ function load(){
  try{let x=JSON.parse(sessionStorage.getItem(STORE+'-session'));if(x)return x}catch(e){}
  return structuredClone(initial);
 }
-function toast(message,silent=false){
+function requestNotificationPermission(){
+ if(!('Notification' in window)){toast('Browser tidak mendukung notifikasi perangkat.',true);return Promise.resolve('unsupported')}
+ if(Notification.permission==='granted'){toast('Notifikasi Android sudah aktif.',true);return Promise.resolve('granted')}
+ if(Notification.permission==='denied'){toast('Izin notifikasi ditolak di pengaturan browser.',true);return Promise.resolve('denied')}
+ return Notification.requestPermission().then(permission=>{
+  toast(permission==='granted'?'Notifikasi Android berhasil diaktifkan.':'Izin notifikasi belum diberikan.',true);
+  return permission;
+ }).catch(()=>{toast('Permintaan izin notifikasi tidak tersedia.',true);return 'error'});
+}
+function notifyAndroid(message,notificationId){
+ if(!('Notification' in window)||Notification.permission!=='granted')return;
+ const key=String(notificationId||message);
+ const previous=androidNotificationKeys.get(key)||0;
+ if(Date.now()-previous<5000)return;
+ androidNotificationKeys.set(key,Date.now());
+ navigator.serviceWorker?.ready.then(registration=>{
+  registration.active?.postMessage({
+   type:'WZ_SHOW_NOTIFICATION',
+   id:key,
+   title:ANDROID_NOTIFICATION_TITLE,
+   message:String(message),
+   icon:ANDROID_NOTIFICATION_ICON,
+   timestamp:Date.now(),
+   url:'/'
+  });
+ }).catch(()=>{});
+}
+function toast(message,silent=false,notificationId){
  const el=document.getElementById('toast');
  if(!el)return;
  el.textContent=message;
  el.style.display='block';
  if(!silent)playNotificationSound();
  if(!silent)speakNotification(message);
+ if(!silent)notifyAndroid(message,notificationId);
  clearTimeout(window.__wzToastTimer);
  window.__wzToastTimer=setTimeout(()=>{el.style.display='none'},2200);
 }
@@ -785,8 +816,9 @@ function saveTransaction(){
  const svc=getService(serviceEl.value),total=Math.max(0,Number(svc?.price||0)-Number(discountEl.value||0)),id=window.__wzTransactionStableId||('TRX'+String(db.transactions.length+1).padStart(4,'0'));
  const t={id,date:dateNow(),customerId:customerEl.value,serviceId:serviceEl.value,employeeId:employeeEl.value,total,payment:paymentEl.value,status:'SELESAI'};
  db.transactions.push(t);const c=getCustomer(t.customerId);if(c){c.visits=(c.visits||0)+1;c.total=(c.total||0)+total}else{}
- db.notifications.push({id:'N'+Date.now(),date:dateNow(),title:'Transaksi berhasil',message:`${id} sebesar ${rupiah(total)}`,read:false});
- save();closeModal();render();toast('Transaksi tersimpan dan laporan diperbarui.');
+ const notificationId='N'+Date.now();
+ db.notifications.push({id:notificationId,date:dateNow(),title:'Transaksi berhasil',message:`${id} sebesar ${rupiah(total)}`,read:false});
+ save();closeModal();render();toast('Transaksi tersimpan dan laporan diperbarui.',false,notificationId);
 function dashboardFilter(){
  const f=document.getElementById('dashFrom')?.value||'',t=document.getElementById('dashTo')?.value||'';
  const list=db.transactions.filter(x=>(!f||x.date>=f)&&(!t||x.date<=t)&&x.status==='SELESAI');
@@ -1018,8 +1050,9 @@ function saveShiftReport(){
  };
  db.shiftReports=db.shiftReports||[];
  db.shiftReports.push(report);
- db.notifications.push({id:'N'+Date.now(),date:dateNow(),title:'Laporan shift tersimpan',message:`${emp.name} menyimpan laporan shift ${report.date}`,read:false});
- save();render();toast(`Laporan dari ${emp.name} masuk.`);
+ const notificationId='N'+Date.now();
+ db.notifications.push({id:notificationId,date:dateNow(),title:'Laporan shift tersimpan',message:`${emp.name} menyimpan laporan shift ${report.date}`,read:false});
+ save();render();toast(`Laporan dari ${emp.name} masuk.`,false,notificationId);
 }
 
 
@@ -1330,7 +1363,7 @@ function saveMyPassword(){
  closeModal();toast('Password berhasil diubah.');
 }
 
-function settings(){if(!guard('settings'))return;const soundEnabled=db.profile.notificationSoundEnabled!==false;document.getElementById('content').innerHTML=`<div class="section-head"><div><span class="gold-label">SETTINGS</span><h1>Pengaturan</h1><p>Profil bisnis dan preferensi offline.</p></div><button class="btn primary" onclick="saveSettings()">Simpan Perubahan</button></div><section class="card"><div class="form"><label>Nama Direktur<input id="pName" value="${db.profile.name}"></label><label>Jabatan<input id="pRole" value="${db.profile.role}"></label><label class="full">Brand<input id="pBrand" value="${db.profile.brand}"></label><label class="full">Fokus<input id="pFocus" value="${db.profile.focus}"></label></div></section><section class="card section"><h3>Notifikasi Perangkat</h3><label style="display:flex;align-items:center;gap:8px"><input id="pNotificationSound" type="checkbox" ${soundEnabled?'checked':''}> Suara notifikasi</label><button class="btn small" style="margin-top:10px" onclick="testNotificationSound()">Uji Suara</button></section><section class="card section"><h3>Data</h3><div class="actions"><button class="btn" onclick="exportBackup()">Backup JSON</button><button class="btn" onclick="document.getElementById('importFile').click()">Restore JSON</button><button class="btn danger" onclick="resetAll()">Reset Data Demo</button></div></section>`}
+function settings(){if(!guard('settings'))return;const soundEnabled=db.profile.notificationSoundEnabled!==false;const notificationStatus='Notification' in window?(Notification.permission==='granted'?'Aktif':Notification.permission==='denied'?'Diblokir':'Belum diizinkan'):'Tidak didukung';document.getElementById('content').innerHTML=`<div class="section-head"><div><span class="gold-label">SETTINGS</span><h1>Pengaturan</h1><p>Profil bisnis dan preferensi offline.</p></div><button class="btn primary" onclick="saveSettings()">Simpan Perubahan</button></div><section class="card"><div class="form"><label>Nama Direktur<input id="pName" value="${db.profile.name}"></label><label>Jabatan<input id="pRole" value="${db.profile.role}"></label><label class="full">Brand<input id="pBrand" value="${db.profile.brand}"></label><label class="full">Fokus<input id="pFocus" value="${db.profile.focus}"></label></div></section><section class="card section"><h3>Notifikasi Perangkat</h3><p class="muted">Status notifikasi Android: ${notificationStatus}</p><button class="btn small" onclick="requestNotificationPermission()">Aktifkan Notifikasi Android</button><label style="display:flex;align-items:center;gap:8px;margin-top:10px"><input id="pNotificationSound" type="checkbox" ${soundEnabled?'checked':''}> Suara notifikasi</label><button class="btn small" style="margin-top:10px" onclick="testNotificationSound()">Uji Suara</button></section><section class="card section"><h3>Data</h3><div class="actions"><button class="btn" onclick="exportBackup()">Backup JSON</button><button class="btn" onclick="document.getElementById('importFile').click()">Restore JSON</button><button class="btn danger" onclick="resetAll()">Reset Data Demo</button></div></section>`}
 function testNotificationSound(){const wasEnabled=db.profile.notificationSoundEnabled;db.profile.notificationSoundEnabled=true;playNotificationSound();db.profile.notificationSoundEnabled=wasEnabled;toast('Suara notifikasi diuji.',true);}
 function saveSettings(){if(!guard('settings'))return;db.profile.name=pName.value;db.profile.role=pRole.value;db.profile.brand=pBrand.value;db.profile.focus=pFocus.value;db.profile.notificationSoundEnabled=document.getElementById('pNotificationSound')?.checked!==false;save();toast('Pengaturan disimpan.');render()}
 

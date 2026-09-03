@@ -1,5 +1,6 @@
 const CACHE = 'wz-manage-pro-pwa-v1';
 const APP_SHELL = ['/', '/index.html', '/manifest.json', '/icons/icon-192.png', '/icons/icon-512.png'];
+const shownNotificationIds = new Set();
 
 self.addEventListener('install', event => {
   event.waitUntil(
@@ -15,6 +16,32 @@ self.addEventListener('activate', event => {
       .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
       .then(() => self.clients.claim())
   );
+});
+
+self.addEventListener('message', event => {
+  const data = event.data;
+  if (!data || data.type !== 'WZ_SHOW_NOTIFICATION' || !data.id || shownNotificationIds.has(data.id)) return;
+  shownNotificationIds.add(data.id);
+  event.waitUntil(self.registration.showNotification(data.title || 'WZ MANAGE PRO', {
+    body: data.message || '',
+    icon: data.icon || '/icons/icon-192.png',
+    badge: data.icon || '/icons/icon-192.png',
+    timestamp: Number(data.timestamp) || Date.now(),
+    tag: `wz-${data.id}`,
+    renotify: false,
+    data: { url: data.url || '/' }
+  }));
+});
+
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
+  const targetUrl = new URL(event.notification.data?.url || '/', self.location.origin).href;
+  event.waitUntil(clients.matchAll({type: 'window', includeUncontrolled: true}).then(clientList => {
+    for (const client of clientList) {
+      if ('focus' in client) return client.focus();
+    }
+    return clients.openWindow(targetUrl);
+  }));
 });
 
 self.addEventListener('fetch', event => {
