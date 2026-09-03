@@ -1,5 +1,6 @@
 {
   "buildCommand": "npm ci",
+  "outputDirectory": ".",
   "functions": {
     "api/**/*.js": {
       "memory": 1024,
