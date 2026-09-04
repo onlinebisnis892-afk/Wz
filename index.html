@@ -462,7 +462,7 @@ function businessServiceStats(){
  return Object.values(map).sort((a,b)=>b.rev-a.rev);
 }
 function businessCustomersCount(){
- return db.customers.length + (db.shiftReports||[]).reduce((s,r)=>s+Number(r.customers||0),0);
+ return ownerBusinessFeed().reduce((s,row)=>s+Number(row.customers||0),0);
 }
 function businessEmployeeStats(){
  const feed=ownerBusinessFeed();
@@ -1481,7 +1481,8 @@ async function syncBusiness(){
   if(window.WZOnlineBusiness?.resetInProgress)return false;
   if(!currentUser)return;
   try{
-    const mine=x=>currentUser.role==='employee'?String(x.employeeId)===String(currentUser.employeeId):true;
+    const isEmployee=currentUser.role==='employee';
+    const mine=x=>isEmployee?String(x.employeeId)===String(currentUser.employeeId):true;
     const localTx=(db.transactions||[]).filter(mine);
     const localShifts=(db.shiftReports||[]).filter(r=>mine(r)&&!/^KYONGSHIFT\d+$/i.test(String(r.id||'')));
     const conflicts=[];
@@ -1503,29 +1504,33 @@ async function syncBusiness(){
       const local=localShById.get(String(r.id));
       if(local&&!sameFields(local,r,['date','employeeId','shiftType','customers','openingCash','cash','qris','cashExpense','physicalCash','totalPayment','expectedCash','cashDifference','serviceTotal','productTotal','totalOmzet','note']))conflicts.push({type:'shiftReport',id:String(r.id),resolution:'server'});
     }
-    const pendingTx=localTx.filter(t=>!serverTxIds.has(String(t.id))).map(t=>({...t,customerName:getCustomer(t.customerId)?.name||null,serviceName:getService(t.serviceId)?.name||null,servicePrice:Number(getService(t.serviceId)?.price||t.servicePrice||0),employeeName:getEmployee(t.employeeId)?.name||null}));
-    const pendingSh=localShifts.filter(r=>!serverShIds.has(String(r.id)));
+    const pendingTx=isEmployee?localTx.filter(t=>!serverTxIds.has(String(t.id))).map(t=>({...t,customerName:getCustomer(t.customerId)?.name||null,serviceName:getService(t.serviceId)?.name||null,servicePrice:Number(getService(t.serviceId)?.price||t.servicePrice||0),employeeName:getEmployee(t.employeeId)?.name||null})):[];
+    const pendingSh=isEmployee?localShifts.filter(r=>!serverShIds.has(String(r.id))):[];
     if(pendingTx.length||pendingSh.length) await api('sync-business',{method:'POST',body:JSON.stringify({transactions:pendingTx,shiftReports:pendingSh})});
     // An offline VOID must still reach the server once connectivity returns.
     const serverTxMap=new Map(serverTx.map(x=>[String(x.id),x]));
     for(const t of localTx){const st=serverTxMap.get(String(t.id));if(st&&String(t.status)==='VOID'&&String(st.status)!=='VOID')try{await api('transaction/void',{method:'POST',body:JSON.stringify({id:t.id})});}catch{}}
     const fresh=await api('business');
     if(Array.isArray(fresh.transactions)){
-      const byId=new Map((db.transactions||[]).map(x=>[x.id,x]));
+      const byId=new Map((isEmployee?db.transactions:[]).map(x=>[x.id,x]));
+      const normalizedTransactions=[];
       for(const t of fresh.transactions){const x=byId.get(t.id)||{id:t.id};Object.assign(x,{date:String(t.date).slice(0,10),customerId:t.customerId||x.customerId||'',customerName:t.customerName||x.customerName||'',serviceId:t.serviceId||x.serviceId||'',serviceName:t.serviceName||x.serviceName||'',servicePrice:Number(t.servicePrice||x.servicePrice||0),employeeId:t.employeeId||x.employeeId||'',employeeName:t.employeeName||x.employeeName||'',total:Number(t.total||0),payment:t.payment||'Tunai',status:t.status||'SELESAI',discount:Number(t.discount||x.discount||0),updatedAt:t.updatedAt||x.updatedAt||null});
         if(t.customerId&&t.customerName&&!getCustomer(t.customerId))db.customers.push({id:t.customerId,name:t.customerName,phone:'',visits:0,total:0,status:'Aktif'});
         if(t.serviceId&&t.serviceName&&!getService(t.serviceId))db.services.push({id:t.serviceId,name:t.serviceName,category:'Umum',price:Number(t.servicePrice||0),duration:0,active:true});
         if(t.employeeId&&t.employeeName&&!getEmployee(t.employeeId))db.employees.push({id:t.employeeId,name:t.employeeName,role:'Barber',salary:0,commission:0,target:0,attendance:0,eval:0,active:true,branchId:null});
-        if(!byId.has(t.id))db.transactions.push(x);}
+        normalizedTransactions.push(x);}
+      db.transactions=isEmployee?[...new Map([...byId.values(),...normalizedTransactions].map(x=>[String(x.id),x])).values()]:normalizedTransactions;
     }
     if(Array.isArray(fresh.shiftReports)){
-      const byId=new Map((db.shiftReports||[]).map(x=>[x.id,x]));
-      for(const rr of fresh.shiftReports){const x=byId.get(rr.id)||{id:rr.id};Object.assign(x,{date:String(rr.date).slice(0,10),employeeId:rr.employeeId||x.employeeId,employeeName:rr.employeeName||x.employeeName,shiftType:rr.shiftType||x.shiftType,customers:Number(rr.customers||0),openingCash:Number(rr.openingCash||0),cash:Number(rr.cash||0),qris:Number(rr.qris||0),cashExpense:Number(rr.cashExpense||0),physicalCash:Number(rr.physicalCash||0),totalPayment:Number(rr.totalPayment||0),expectedCash:Number(rr.expectedCash||0),cashDifference:Number(rr.cashDifference||0),serviceTotal:Number(rr.serviceTotal||0),productTotal:Number(rr.productTotal||0),totalOmzet:Number(rr.totalOmzet||0),services:rr.services||[],products:rr.products||[],note:rr.note||'',updatedAt:rr.updatedAt||x.updatedAt||null});if(!byId.has(rr.id))db.shiftReports.push(x);}
+      const byId=new Map((isEmployee?db.shiftReports:[]).map(x=>[x.id,x]));
+      const normalizedShifts=[];
+      for(const rr of fresh.shiftReports){const x=byId.get(rr.id)||{id:rr.id};Object.assign(x,{date:String(rr.date).slice(0,10),employeeId:rr.employeeId||x.employeeId,employeeName:rr.employeeName||x.employeeName,shiftType:rr.shiftType||x.shiftType,customers:Number(rr.customers||0),openingCash:Number(rr.openingCash||0),cash:Number(rr.cash||0),qris:Number(rr.qris||0),cashExpense:Number(rr.cashExpense||0),physicalCash:Number(rr.physicalCash||0),totalPayment:Number(rr.totalPayment||0),expectedCash:Number(rr.expectedCash||0),cashDifference:Number(rr.cashDifference||0),serviceTotal:Number(rr.serviceTotal||0),productTotal:Number(rr.productTotal||0),totalOmzet:Number(rr.totalOmzet||0),services:rr.services||[],products:rr.products||[],note:rr.note||'',updatedAt:rr.updatedAt||x.updatedAt||null});normalizedShifts.push(x);}
+      db.shiftReports=isEmployee?[...new Map([...byId.values(),...normalizedShifts].map(x=>[String(x.id),x])).values()]:normalizedShifts;
     }
     if(window.WZOnlineBusiness?.resetGeneration?.()!==generation)return false;
     save();
     window.WZOnlineBusiness.lastConflicts=conflicts;
-    if(conflicts.length&&typeof toast==='function')toast(`${conflicts.length} konflik data terdeteksi; versi server digunakan.`);
+    if(conflicts.length&&typeof toast==='function')toast(`${conflicts.length} konflik data terdeteksi; versi server digunakan.`,true);
     return true;
   }catch(e){console.warn('Online business sync skipped:',e.message||e);return false;}
 }
