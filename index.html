@@ -1021,6 +1021,17 @@ function calcShiftReport(){
 }
 function saveShiftReport(){
  const calc=calcShiftReport();
+
+ // VALIDASI WAJIB LAPORAN TUTUP SHIFT
+ // Minimal harus ada 1 layanan dan omzet/pembayaran harus > 0.
+ if(Number(calc.serviceTotal||0)<=0){
+   toast('Laporan belum bisa disimpan. Isi minimal 1 layanan terlebih dahulu.');
+   return;
+ }
+ if(Number(calc.totalPayment||0)<=0){
+   toast('Laporan belum bisa disimpan. Total pembayaran harus lebih dari Rp0.');
+   return;
+ }
  if(Math.abs(calc.difference)>0.001){
   alert('Laporan belum dapat disimpan karena masih ada selisih kasir. Pastikan Uang fisik akhir di kasir sesuai dengan Kas akhir seharusnya (selisih Rp 0).');
   const dif=document.getElementById('srDifference');
