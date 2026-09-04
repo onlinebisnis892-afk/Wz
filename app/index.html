@@ -1563,7 +1563,7 @@ window.saveShiftReport=async function(){
   const payload={id:stableShiftId,date:document.getElementById('srDate')?.value||dateNow(),employeeId:emp.id,employeeName:emp.name,shiftType:document.getElementById('srShift')?.value||'Full Shift',customers:Number(document.getElementById('srCustomers')?.value||0),openingCash:Number(document.getElementById('srOpening')?.value||0),cash:Number(document.getElementById('srCash')?.value||0),qris:Number(document.getElementById('srQris')?.value||0),cashExpense:Number(document.getElementById('srExpense')?.value||0),physicalCash:Number(document.getElementById('srPhysical')?.value||0),totalPayment:c?.totalPayment||0,expectedCash:c?.expected||0,cashDifference:c?.difference||0,serviceTotal:c?.serviceTotal||0,productTotal:c?.productTotal||0,totalOmzet:c?.omzet||0,services,products,note:document.getElementById('srNote')?.value.trim()||'',savedAt:new Date().toISOString()};
   try{await api('shift-report',{method:'POST',body:JSON.stringify(payload)});
     const originalDate=window.__wzShiftStableId; window.__wzShiftStableId=stableShiftId;
-    await localSaveShiftReport(); window.__wzShiftStableId=originalDate; syncBusiness();
+    await localSaveShiftReport(); window.__wzShiftStableId=originalDate; await syncBusiness();
   }catch(e){
     const errorMessage=String(e?.message||e||'');
     if(/Laporan shift wajib memiliki minimal 1 layanan|Total pembayaran laporan shift harus lebih dari Rp0/i.test(errorMessage)){
