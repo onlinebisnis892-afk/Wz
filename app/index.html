@@ -1564,8 +1564,15 @@ window.saveShiftReport=async function(){
   try{await api('shift-report',{method:'POST',body:JSON.stringify(payload)});
     const originalDate=window.__wzShiftStableId; window.__wzShiftStableId=stableShiftId;
     await localSaveShiftReport(); window.__wzShiftStableId=originalDate; syncBusiness();
-  }catch(e){await localSaveShiftReport();toast('Laporan shift tersimpan lokal; server belum tersinkron: '+e.message);}
-};
+  }catch(e){
+    const errorMessage=String(e?.message||e||'');
+    if(/Laporan shift wajib memiliki minimal 1 layanan|Total pembayaran laporan shift harus lebih dari Rp0/i.test(errorMessage)){
+      toast(errorMessage);
+      return;
+    }
+    await localSaveShiftReport();
+    toast('Laporan shift tersimpan lokal; server belum tersinkron: '+errorMessage);
+  };
 
 })();
 </script>
